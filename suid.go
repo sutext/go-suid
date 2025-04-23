@@ -12,27 +12,15 @@ import (
 	"unicode/utf8"
 )
 
-// # Snowflake Unique Identifier.The data structure: symbol(1)-group(3)-time(34)-seq(19)-host(7)
-//
-// # The host id will read `SUID_HOST_ID` or `POD_NAME` `HOSTNAME` from environment firstly, and pick last part ( separator "-" )
-//
-// # If run in kubenetes, the hostname will be the pod name, and the host ID will be the last part of the pod name. So recommend to use StatefulSet to ensure the pod name is unique.
-//
-// # If host id is not found, it will generate a random host id.
-//
-// # The max date for SUID will be `2514-05-30 01:53:03 +0000`
-//
-// # The max number of concurrent transactions is 524288 per second. It will wait for next second automatically
+// Snowflake Unique Identifier SUID is a 64-bit integer.
+// The data structure is symbol(1)-group(3)-time(34)-seq(19)-host(7)
+//   - The host id will read `SUID_HOST_ID` or `POD_NAME` `HOSTNAME` from environment firstly, and pick last part ( separator "-" )
+//   - If run in kubenetes, the hostname will be the pod name, and the host ID will be the last part of the pod name. So recommend to use StatefulSet to ensure the pod name is unique.
+//   - If host id is not found, it will generate a random host id.
+//   - The max date for SUID will be `2514-05-30 01:53:03 +0000`
+//   - The max number of concurrent transactions is 524288 per second. It will wait for next second automatically
 type SUID struct {
 	value int64
-}
-type Desc struct {
-	String string `json:"string"`
-	Value  int64  `json:"value"`
-	Group  int64  `json:"group"`
-	Time   int64  `json:"time"`
-	Host   int64  `json:"host"`
-	Seq    int64  `json:"seq"`
 }
 
 // New a SUID with the given group. If group is not given, it will use the default group 0.
@@ -48,6 +36,11 @@ func New(group ...int64) SUID {
 	}
 }
 
+// Init a SUID with the given value.
+func Init(value int64) SUID {
+	return SUID{value}
+}
+
 // Parse a SUID from a string.
 func Parse(str string) (SUID, error) {
 	parsed, err := strconv.ParseInt(str, 10, 64)
@@ -57,9 +50,13 @@ func Parse(str string) (SUID, error) {
 	return SUID{parsed}, nil
 }
 
-// Parse a SUID from an int64.
-func Parsev(value int64) SUID {
-	return SUID{value}
+// ParseHex a SUID from a hex string.
+func ParseHex(str string) (SUID, error) {
+	parsed, err := strconv.ParseInt(str, 16, 64)
+	if err != nil {
+		return SUID{}, err
+	}
+	return SUID{parsed}, nil
 }
 
 // Host returns the host ID of the SUID.
@@ -103,15 +100,8 @@ func (s SUID) Verify() bool {
 }
 
 // Get the description of the SUID.
-func (s SUID) Desc() Desc {
-	return Desc{
-		String: s.String(),
-		Value:  s.value,
-		Group:  s.Group(),
-		Time:   s.Time(),
-		Host:   s.Host(),
-		Seq:    s.Seq(),
-	}
+func (s SUID) Description() string {
+	return fmt.Sprintf("Group:%d, Time:%d, Hex:%s", s.Group(), s.Time(), s.Stringb(16))
 }
 
 // MarshalJSON implements the json.Marshaler interface.

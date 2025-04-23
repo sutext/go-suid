@@ -27,7 +27,7 @@ func TestJson(t *testing.T) {
 		t.Log(string(b))
 		nu := User{}
 		json.Unmarshal(b, &nu)
-		t.Log(nu.ID)
+		t.Log(nu.ID.Description())
 		if u != nu {
 			t.Error("not equal")
 		}
