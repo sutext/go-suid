@@ -16,6 +16,7 @@ type User struct {
 var suids = make(map[int64]SUID)
 
 func TestJson(t *testing.T) {
+	fmt.Println(time.Unix(1745400000, 0).Format(time.DateTime))
 	fmt.Println("TestJson")
 	for i := 0; i < 8; i++ {
 		u := User{
@@ -28,6 +29,9 @@ func TestJson(t *testing.T) {
 		nu := User{}
 		json.Unmarshal(b, &nu)
 		t.Log(nu.ID.Description())
+		if !nu.ID.Verify() {
+			t.Error("not verify")
+		}
 		if u != nu {
 			t.Error("not equal")
 		}
@@ -45,7 +49,7 @@ func TestConcurenceyChain(t *testing.T) {
 		close(ch)
 	}()
 	for id := range ch {
-		suids[id.Value()] = id
+		suids[id.Int()] = id
 	}
 	t2 := time.Now()
 	t.Log(t2.Sub(t1))

@@ -1,6 +1,7 @@
 package suid
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -59,6 +60,11 @@ func ParseHex(str string) (SUID, error) {
 	return SUID{parsed}, nil
 }
 
+// Int returns the int64 value of the SUID.
+func (s SUID) Int() int64 {
+	return s.value
+}
+
 // Host returns the host ID of the SUID.
 func (s SUID) Host() int64 {
 	return s.value & MAX_HOST
@@ -79,11 +85,6 @@ func (s SUID) Group() int64 {
 	return (s.value >> (_WID_TIME + _WID_SEQ + _WID_HOST)) & MAX_GROUP
 }
 
-// Value returns the internal value of the SUID.
-func (s SUID) Value() int64 {
-	return s.value
-}
-
 // String returns the string representation of the SUID.
 func (s SUID) String() string {
 	return strconv.FormatInt(s.value, 10)
@@ -96,7 +97,7 @@ func (s SUID) Stringb(base int) string {
 
 // Verify the SUID is valid or not.
 func (s SUID) Verify() bool {
-	return s.Time() > 1678204800 // 2022-01-01 00:00:00
+	return s.Time() > 1745400000 // 2025-04-23 17:20:00
 }
 
 // Get the description of the SUID.
@@ -112,6 +113,27 @@ func (s SUID) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements the json.Unmarshaler interface.
 func (s *SUID) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &s.value)
+}
+
+// Value implements the driver.Valuer interface.
+func (s SUID) Value() (driver.Value, error) {
+	return s.value, nil
+}
+
+// Scan implements the sql.Scanner interface.
+func (s *SUID) Scan(value any) error {
+	switch v := value.(type) {
+	case int64:
+		s.value = v
+		return nil
+	default:
+		return fmt.Errorf("unsupported type for SUID: %T", value)
+	}
+}
+
+// GormDataType implements the gorm.DataTypeInterface interface.
+func (s SUID) GormDataType() string {
+	return "bigint"
 }
 
 const (
@@ -156,7 +178,6 @@ func getBuilder(g int64) *builder {
 
 // newBuilder creates a new builder for the given group.
 func newBuilder(group int64) *builder {
-	fmt.Printf("[SUID][INFO] New builder for group:%d\n", group)
 	return &builder{seq: 0, thisTime: 0, zeroTime: time.Now().Unix(), seqCount: 0, group: group}
 }
 
