@@ -37,13 +37,13 @@ func New(group ...int64) SUID {
 	}
 }
 
-// Init a SUID with the given value.
-func Init(value int64) SUID {
+// FromInt creates a SUID from an int64 value.
+func FromInt(value int64) SUID {
 	return SUID{value}
 }
 
-// Parse a SUID from a string.
-func Parse(str string) (SUID, error) {
+// FromStr creates a SUID from a string.
+func FromStr(str string) (SUID, error) {
 	parsed, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
 		return SUID{}, err
@@ -51,8 +51,8 @@ func Parse(str string) (SUID, error) {
 	return SUID{parsed}, nil
 }
 
-// ParseHex a SUID from a hex string.
-func ParseHex(str string) (SUID, error) {
+// FromHex creates a SUID from a hex string.
+func FromHex(str string) (SUID, error) {
 	parsed, err := strconv.ParseInt(str, 16, 64)
 	if err != nil {
 		return SUID{}, err
