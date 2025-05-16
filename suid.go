@@ -15,11 +15,13 @@ import (
 
 // Snowflake Unique Identifier SUID is a 64-bit integer.
 // The data structure is symbol(1)-group(3)-time(34)-seq(19)-host(7)
-//   - The host id will read `SUID_HOST_ID` or `POD_NAME` `HOSTNAME` from environment firstly, and pick last part ( separator "-" )
-//   - If run in kubenetes, the hostname will be the pod name, and the host ID will be the last part of the pod name. So recommend to use StatefulSet to ensure the pod name is unique.
-//   - If host id is not found, it will generate a random host id.
+//   - The host_id will read `SUID_HOST_ID` `POD_NAME` `HOSTNAME` from environment, and pick last part ( separator "-" )
+//   - If run in kubenetes, recommend to use StatefulSet to provide a unique host_id.
+//   - Otherwise, you must set `SUID_HOST_ID` manually to provide a unique host_id.
 //   - The max date for SUID will be `2514-05-30 01:53:03 +0000`
 //   - The max number of concurrent transactions is 524288 per second. It will wait for next second automatically
+//   - Recommend to use SUID as primary key for database table to ensure the uniqueness and performance.
+//   - The SUID will keep threaded-safe and safe for concurrent access.
 type SUID struct {
 	value int64
 }
@@ -33,8 +35,13 @@ func New(group ...int64) SUID {
 	case 1:
 		return getBuilder(group[0]).create()
 	default:
-		panic("[SUID] Invalid parameter count.")
+		panic("[SUID New] Invalid parameter count.")
 	}
+}
+
+// Get current Host ID.
+func HostID() int64 {
+	return _HOST_ID
 }
 
 // FromInt creates a SUID from an int64 value.
@@ -65,6 +72,11 @@ func (s SUID) Int() int64 {
 	return s.value
 }
 
+// Hex returns the hex string representation of the SUID.
+func (s SUID) Hex() string {
+	return s.String(16)
+}
+
 // Host returns the host ID of the SUID.
 func (s SUID) Host() int64 {
 	return s.value & MAX_HOST
@@ -85,24 +97,27 @@ func (s SUID) Group() int64 {
 	return (s.value >> (_WID_TIME + _WID_SEQ + _WID_HOST)) & MAX_GROUP
 }
 
-// String returns the string representation of the SUID.
-func (s SUID) String() string {
-	return strconv.FormatInt(s.value, 10)
-}
-
-// Stringb returns the string representation of the SUID in the given base.
-func (s SUID) Stringb(base int) string {
-	return strconv.FormatInt(s.value, base)
+// String returns the string representation of the SUID with the given base.
+// If base is not given, it will use base 10.
+func (s SUID) String(base ...int) string {
+	switch len(base) {
+	case 0:
+		return strconv.FormatInt(s.value, 10)
+	case 1:
+		return strconv.FormatInt(s.value, base[0])
+	default:
+		panic("[SUID String] Invalid parameter count.")
+	}
 }
 
 // Verify the SUID is valid or not.
 func (s SUID) Verify() bool {
-	return s.Time() > 1745400000 // 2025-04-23 17:20:00
+	return s.Group() >= 0 && s.Group() <= MAX_GROUP && s.Seq() >= 0 && s.Seq() <= MAX_SEQ && s.Time() >= 0 && s.Time() <= MAX_TIME && s.Time() > 1745400000 // 2025-04-23 17:20:00
 }
 
 // Get the description of the SUID.
 func (s SUID) Description() string {
-	return fmt.Sprintf("Group:%d, Time:%d, Hex:%s", s.Group(), s.Time(), s.Stringb(16))
+	return fmt.Sprintf("Group:%d, Time:%d, Hex:%s", s.Group(), s.Time(), s.Hex())
 }
 
 // MarshalJSON implements the json.Marshaler interface.
