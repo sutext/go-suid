@@ -49,18 +49,28 @@ func FromInt(value int64) SUID {
 	return SUID{value}
 }
 
-// FromStr creates a SUID from a string.
-func FromStr(str string) (SUID, error) {
-	parsed, err := strconv.ParseInt(str, 10, 64)
+// FromHex creates a SUID from a hex string.
+func FromHex(str string) (SUID, error) {
+	parsed, err := strconv.ParseInt(str, 16, 64)
 	if err != nil {
 		return SUID{}, err
 	}
 	return SUID{parsed}, nil
 }
 
-// FromHex creates a SUID from a hex string.
-func FromHex(str string) (SUID, error) {
-	parsed, err := strconv.ParseInt(str, 16, 64)
+// FromStr creates a SUID from a string with the given base.
+// If base is not given, it will use base 10.
+func FromStr(str string, base ...int) (SUID, error) {
+	var parsed int64
+	var err error
+	switch len(base) {
+	case 0:
+		parsed, err = strconv.ParseInt(str, 10, 64)
+	case 1:
+		parsed, err = strconv.ParseInt(str, base[0], 64)
+	default:
+		panic("[SUID FromStr()] Invalid parameter count.")
+	}
 	if err != nil {
 		return SUID{}, err
 	}
@@ -74,7 +84,20 @@ func (s SUID) Int() int64 {
 
 // Hex returns the hex string representation of the SUID.
 func (s SUID) Hex() string {
-	return s.String(16)
+	return s.Str(16)
+}
+
+// Str returns the string representation of the SUID with the given base.
+// If base is not given, it will use base 10.
+func (s SUID) Str(base ...int) string {
+	switch len(base) {
+	case 0:
+		return strconv.FormatInt(s.value, 10)
+	case 1:
+		return strconv.FormatInt(s.value, base[0])
+	default:
+		panic("[SUID Str()] Invalid parameter count.")
+	}
 }
 
 // Host returns the host ID of the SUID.
@@ -95,19 +118,6 @@ func (s SUID) Time() int64 {
 // Group returns the group of the SUID.
 func (s SUID) Group() int64 {
 	return (s.value >> (_WID_TIME + _WID_SEQ + _WID_HOST)) & MAX_GROUP
-}
-
-// String returns the string representation of the SUID with the given base.
-// If base is not given, it will use base 10.
-func (s SUID) String(base ...int) string {
-	switch len(base) {
-	case 0:
-		return strconv.FormatInt(s.value, 10)
-	case 1:
-		return strconv.FormatInt(s.value, base[0])
-	default:
-		panic("[SUID String] Invalid parameter count.")
-	}
 }
 
 // Verify the SUID is valid or not.
