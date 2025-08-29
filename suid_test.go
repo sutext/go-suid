@@ -16,6 +16,7 @@ type User struct {
 var suids = make(map[int64]SUID)
 
 func TestJson(t *testing.T) {
+	fmt.Println(New())
 	fmt.Println(time.Unix(1745400000, 0).Format(time.DateTime))
 	fmt.Println("TestJson")
 	for i := 0; i < 8; i++ {

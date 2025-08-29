@@ -2,7 +2,6 @@ package suid
 
 import (
 	"database/sql/driver"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -127,17 +126,35 @@ func (s SUID) Verify() bool {
 
 // Get the description of the SUID.
 func (s SUID) Description() string {
-	return fmt.Sprintf("Group:%d, Time:%d, Hex:%s", s.Group(), s.Time(), s.Hex())
+	return fmt.Sprintf("Group:%d, Time:%d, Int:%d", s.Group(), s.Time(), s.value)
+}
+func (s SUID) String() string {
+	return strconv.FormatInt(s.value, 10)
 }
 
 // MarshalJSON implements the json.Marshaler interface.
 func (s SUID) MarshalJSON() ([]byte, error) {
-	return json.Marshal(s.value)
+	return s.MarshalText()
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
 func (s *SUID) UnmarshalJSON(data []byte) error {
-	return json.Unmarshal(data, &s.value)
+	return s.UnmarshalText(data)
+}
+
+// MarshalText implements the encoding.TextMarshaler interface.
+func (s SUID) MarshalText() ([]byte, error) {
+	return []byte(strconv.FormatInt(s.value, 10)), nil
+}
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface.
+func (s *SUID) UnmarshalText(data []byte) error {
+	parsed, err := strconv.ParseInt(string(data), 10, 64)
+	if err != nil {
+		return err
+	}
+	s.value = parsed
+	return nil
 }
 
 // Value implements the driver.Valuer interface.
