@@ -3,6 +3,7 @@ package suid
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -13,23 +14,41 @@ type User struct {
 	Age  int
 }
 
-var suids = make(map[int64]SUID)
-
+func TestEncode(t *testing.T) {
+	fmt.Println(SUID{})
+	fmt.Println(time.Unix(0x1ffffffff, 0).UTC())
+	id := New()
+	fmt.Println(id.Host())
+	t.Log(id)
+	t.Log(id.Integer())
+	str := id.String()
+	id2, err := FromString(str)
+	t.Log(id2)
+	if err != nil {
+		t.Error(err)
+	}
+	if id != id2 {
+		t.Error("not equal")
+	}
+}
 func TestJson(t *testing.T) {
-	fmt.Println(New())
-	fmt.Println(time.Unix(1745400000, 0).Format(time.DateTime))
-	fmt.Println("TestJson")
-	for i := 0; i < 8; i++ {
+	for range 1 {
 		u := User{
-			ID:   New(int64(i)),
+			ID:   New(),
 			Name: "Alice",
 			Age:  25,
 		}
-		b, _ := json.Marshal(u)
+		b, err := json.Marshal(u)
+		if err != nil {
+			t.Error(err)
+		}
 		t.Log(string(b))
 		nu := User{}
-		json.Unmarshal(b, &nu)
-		t.Log(nu.ID.Description())
+		err = json.Unmarshal(b, &nu)
+		if err != nil {
+			t.Error(err)
+		}
+		t.Log(nu.ID.String())
 		if !nu.ID.Verify() {
 			t.Error("not verify")
 		}
@@ -38,23 +57,42 @@ func TestJson(t *testing.T) {
 		}
 	}
 }
-func TestConcurenceyChain(t *testing.T) {
-	fmt.Println("TestConcurenceyChain")
+func TestConcurencey(t *testing.T) {
+	fmt.Println(New())
+	var suids sync.Map
 	t1 := time.Now()
-	ch := make(chan SUID)
 	max := MAX_SEQ
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		for range max {
-			ch <- New(2)
+			id := New()
+			suids.Store(id.Integer(), id)
 		}
-		close(ch)
-	}()
-	for id := range ch {
-		suids[id.Int()] = id
-	}
+	})
+	wg.Go(func() {
+		for range max {
+			id := New()
+			suids.Store(id.Integer(), id)
+		}
+	})
+	wg.Go(func() {
+		for range max {
+			id := New()
+			suids.Store(id.Integer(), id)
+		}
+	})
+	wg.Wait()
 	t2 := time.Now()
-	t.Log(t2.Sub(t1))
-	if len(suids) != int(max) {
-		t.Errorf("len of suids:%d is not equal to max:%d", len(suids), max)
+	fmt.Println("time used:", t2.Sub(t1))
+	len := 0
+	suids.Range(func(key, value any) bool {
+		// t.Log(key, value)
+		len++
+		return true
+	})
+	t3 := time.Now()
+	fmt.Println("time used:", t3.Sub(t2))
+	if len != int(max*3) {
+		t.Errorf("len of suids:%d is not equal to max:%d", len, max)
 	}
 }
