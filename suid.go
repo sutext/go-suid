@@ -78,12 +78,12 @@ func New() SUID {
 	return SUID{thisTime<<(_WID_SEQ+_WID_HOST) | seq<<_WID_HOST | _HOST_ID}
 }
 
-// FromInt creates a SUID from an int64 value.
+// FromInteger creates a SUID from an int64 value.
 func FromInteger(value int64) SUID {
 	return SUID{value}
 }
 
-// FromHex creates a SUID from a hex string.
+// FromString creates a SUID from a suid string.
 func FromString(str string) (SUID, error) {
 	i, err := decode([]byte(str))
 	if err != nil {
@@ -225,8 +225,7 @@ func getHostID() int64 {
 		}
 	}
 	// read local ip address thirdly
-	ip, err := getLocalIP()
-	if err == nil {
+	if ip, err := getLocalIP(); err == nil {
 		parts := strings.Split(ip, ".")
 		if len(parts) == 4 {
 			last, err := strconv.ParseInt(parts[3], 10, 64)

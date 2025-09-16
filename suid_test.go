@@ -86,7 +86,6 @@ func TestConcurencey(t *testing.T) {
 	fmt.Println("time used:", t2.Sub(t1))
 	len := 0
 	suids.Range(func(key, value any) bool {
-		// t.Log(key, value)
 		len++
 		return true
 	})
