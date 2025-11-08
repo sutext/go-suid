@@ -15,6 +15,7 @@ type User struct {
 }
 
 func TestEncode(t *testing.T) {
+
 	id := New()
 	fmt.Println(id.Host())
 	t.Log(id)
@@ -89,20 +90,23 @@ func TestConcurencey(t *testing.T) {
 	if len != max*3 {
 		t.Errorf("len of suids:%d is not equal to max:%d", len, max*3)
 	}
+
 }
 
 func BenchmarkGenerate(b *testing.B) {
 	b.ReportAllocs()
-	for b.Loop() {
-		New()
-	}
+	b.Run("suid", func(b *testing.B) {
+		for b.Loop() {
+			_ = New()
+		}
+	})
 }
 
 func BenchmarkGenerateParallel(b *testing.B) {
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			New()
+			_ = New().String()
 		}
 	})
 }
