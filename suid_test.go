@@ -94,65 +94,50 @@ func TestConcurencey(t *testing.T) {
 }
 
 func BenchmarkGenerate(b *testing.B) {
-	b.ReportAllocs()
-	b.Run("suid", func(b *testing.B) {
-		for b.Loop() {
-			_ = New()
-		}
-	})
-}
-
-func BenchmarkGenerateParallel(b *testing.B) {
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			_ = New().String()
-		}
-	})
-}
-
-func BenchmarkString(b *testing.B) {
-	id := New()
-
-	b.ReportAllocs()
-	for b.Loop() {
-		_ = id.String()
-	}
-}
-
-func BenchmarkFromString(b *testing.B) {
 	id := New()
 	str := id.String()
-
+	i := id.Integer()
 	b.ReportAllocs()
-	for b.Loop() {
-		_, _ = FromString(str)
-	}
+	b.Run("New", func(b *testing.B) {
+		for b.Loop() {
+			New()
+		}
+	})
+	b.Run("NewString", func(b *testing.B) {
+		for b.Loop() {
+			_ = id.String()
+		}
+	})
+	b.Run("NewFromInteger", func(b *testing.B) {
+		for b.Loop() {
+			FromInteger(i)
+		}
+	})
+	b.Run("NewFromString", func(b *testing.B) {
+		for b.Loop() {
+			FromString(str)
+		}
+	})
 }
 
-func BenchmarkJSONMarshal(b *testing.B) {
+func BenchmarkJSON(b *testing.B) {
 	u := User{
 		ID:   New(),
 		Name: "Alice",
 		Age:  25,
 	}
-
 	b.ReportAllocs()
-	for b.Loop() {
-		_, _ = json.Marshal(u)
-	}
-}
-
-func BenchmarkJSONUnmarshal(b *testing.B) {
-	u := User{
-		ID:   New(),
-		Name: "Alice",
-		Age:  25,
-	}
+	b.Run("Marshal", func(b *testing.B) {
+		for b.Loop() {
+			_, _ = json.Marshal(u)
+		}
+	})
 	data, _ := json.Marshal(u)
-	b.ReportAllocs()
-	for b.Loop() {
-		var nu User
-		_ = json.Unmarshal(data, &nu)
-	}
+	b.Log(string(data))
+	b.Run("Unmarshal", func(b *testing.B) {
+		for b.Loop() {
+			var nu User
+			_ = json.Unmarshal(data, &nu)
+		}
+	})
 }
