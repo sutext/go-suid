@@ -34,14 +34,13 @@ const (
 )
 
 var (
-	_WID_SEQ     = bitWidth(MAX_SEQ)  //SEQ bits width
-	_WID_HOST    = bitWidth(MAX_HOST) //HOST bits width
-	_WID_TIME    = bitWidth(MAX_TIME) //TIME bits width
-	_HOST_ID     = getHostID()
-	_ENCODE      = "abcdefghijklmnopqrstuvwxyz123456" // custom base32 encoding map
-	_DECODE      = make(map[byte]byte, len(_ENCODE))  // custom base32 decoding map
-	_Builders    = make(map[int64]*builder)
-	_BuilderLock = sync.Mutex{}
+	_WID_SEQ  = bitWidth(MAX_SEQ)  //SEQ bits width
+	_WID_HOST = bitWidth(MAX_HOST) //HOST bits width
+	_WID_TIME = bitWidth(MAX_TIME) //TIME bits width
+	_HOST_ID  = getHostID()
+	_ENCODE   = "abcdefghijklmnopqrstuvwxyz123456" // custom base32 encoding map
+	_DECODE   = make(map[byte]byte, len(_ENCODE))  // custom base32 decoding map
+	_Builders = sync.Map{}
 )
 
 func init() {
@@ -215,17 +214,11 @@ type builder struct {
 
 // getBuilder returns the builder for the given group. If the builder does not exist, it will create a new one.
 func getBuilder(g int64) *builder {
-	_BuilderLock.Lock()
-	defer _BuilderLock.Unlock()
 	if g < 0 || g > MAX_GROUP {
 		panic(fmt.Sprintf("[SUID] Invalid input group: %d", g))
 	}
-	b, ok := _Builders[g]
-	if !ok {
-		b = newBuilder(g)
-		_Builders[g] = b
-	}
-	return b
+	b, _ := _Builders.LoadOrStore(g, newBuilder(g))
+	return b.(*builder)
 }
 
 // newBuilder creates a new builder for the given group.

@@ -90,7 +90,6 @@ func TestConcurencey(t *testing.T) {
 	if len != max*3 {
 		t.Errorf("len of suids:%d is not equal to max:%d", len, max*3)
 	}
-
 }
 
 func BenchmarkGenerate(b *testing.B) {
