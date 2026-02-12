@@ -80,6 +80,9 @@ func (s GUID) Seq() int64 {
 func (s GUID) Time() int64 {
 	return int64(s[6]) | int64(s[5])<<8 | int64(s[4])<<16 | int64(s[3])<<24 | int64(s[2])<<32 | int64(s[1])<<40 | int64(s[0]&0x1f)<<48
 }
+func (s GUID) Verify() bool {
+	return s.Group() <= uint8(MAX_GROUP) && s.HostID() <= MAX_HOST && s.Seq() <= MAX_SEQ && s.Time() >= 1770904743122773
+}
 
 // Description returns a human-readable description of the GUID.
 func (s GUID) Description() string {
@@ -97,8 +100,8 @@ func (s GUID) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
 func (s *GUID) UnmarshalJSON(data []byte) error {
-	if len(data) != 18 || data[0] != '"' || data[14] != '"' {
-		return fmt.Errorf("invalid suid json string")
+	if len(data) != 18 || data[0] != '"' || data[17] != '"' {
+		return fmt.Errorf("invalid guid json string")
 	}
 	return s.UnmarshalText(data[1:17])
 }

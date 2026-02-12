@@ -1,6 +1,7 @@
 package suid
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -9,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestUUIDEncode(t *testing.T) {
+func TestGUIDEncode(t *testing.T) {
 	var last time.Time
 	for i := 0; i < 10; i++ {
 		now := time.Now()
@@ -19,7 +20,8 @@ func TestUUIDEncode(t *testing.T) {
 		}
 		last = now
 	}
-	fmt.Printf("time: %v,timeWidth: %d\n", time.UnixMicro(0x7f_ffff_ffff_ffff), bitWidth(0x7f_ffff_ffff_ffff))
+	tm := time.UnixMicro(0x7f_ffff_ffff_ffff)
+	fmt.Printf("time: %v,now: %d,timeWidth: %d\n", tm, time.Now().UnixMicro(), bitWidth(0x7f_ffff_ffff_ffff))
 	id := NewGUID()
 	t.Log(HostID())
 	t.Log(id.Description())
@@ -33,7 +35,38 @@ func TestUUIDEncode(t *testing.T) {
 		t.Error("not equal")
 	}
 }
-func TestUUIDConcurencey(t *testing.T) {
+
+type GUser struct {
+	ID   GUID
+	Name string
+	Age  int
+}
+
+func TestGUIDJson(t *testing.T) {
+	u := GUser{
+		ID:   NewGUID(),
+		Name: "Alice",
+		Age:  25,
+	}
+	b, err := json.Marshal(u)
+	if err != nil {
+		t.Error(err)
+	}
+	t.Log(string(b))
+	nu := GUser{}
+	err = json.Unmarshal(b, &nu)
+	if err != nil {
+		t.Error(err)
+	}
+	t.Log(nu.ID.String())
+	if !nu.ID.Verify() {
+		t.Error("not verify")
+	}
+	if u != nu {
+		t.Error("not equal")
+	}
+}
+func TestGUIDConcurencey(t *testing.T) {
 	var suids sync.Map
 	t1 := time.Now()
 	max := MAX_SEQ
@@ -70,7 +103,7 @@ func TestUUIDConcurencey(t *testing.T) {
 		t.Errorf("len of suids:%d is not equal to max:%d", len, max*3)
 	}
 }
-func BenchmarkUUIDEncode(b *testing.B) {
+func BenchmarkGUIDEncode(b *testing.B) {
 	b.Run("NewGUID", func(b *testing.B) {
 		for b.Loop() {
 			_ = NewGUID().String()

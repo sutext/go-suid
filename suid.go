@@ -116,7 +116,7 @@ func (s SUID) Group() int64 {
 
 // Verify the SUID is valid or not.
 func (s SUID) Verify() bool {
-	return s.Group() >= 0 && s.Group() <= MAX_GROUP && s.Seq() >= 0 && s.Seq() <= MAX_SEQ && s.Time() >= 0 && s.Time() <= MAX_TIME && s.Time() > 1745400000 // 2025-04-23 17:20:00
+	return s.Group() <= MAX_GROUP && s.Host() <= MAX_HOST && s.Seq() <= MAX_SEQ && s.Time() <= MAX_TIME && s.Time() > 1745400000 // 2025-04-23 17:20:00
 }
 
 // Get the description of the SUID.
