@@ -8,57 +8,40 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
 
 // Snowflake Unique Identifier SUID is a 64-bit integer.
-// The data structure is symbol(1)-time(33)-seq(22)-host(8)
-//   - The host_id will read `SUID_HOST_ID` or `POD_NAME` from environment, and pick last part ( separator "-" ) or local ip address.
-//   - If run in kubenetes, recommend to use `StatefulSet` to provide a unique host_id.
-//   - Otherwise, you must set `SUID_HOST_ID` manually to provide a unique host_id,or keep unique ip.
-//   - The SUID will work well before `2242-03-16 12:56:31 +0000 UTC`
+// The data structure is symbol(1)-group(3)-time(34)-seq(19)-host(7)
+//   - The host_id will read `SUID_HOST_ID` `POD_NAME` `HOSTNAME` from environment, and pick last part ( separator "-" )
+//   - If run in kubenetes, recommend to use StatefulSet to provide a unique host_id.
+//   - Otherwise, you must set `SUID_HOST_ID` manually to provide a unique host_id.
+//   - The max date for SUID will be `2514-05-30 01:53:03 +0000`
+//   - The max number of concurrent transactions is 524288 per second. It will wait for next second automatically
+//   - Recommend to use SUID as primary key for database table to ensure the uniqueness and performance.
 //   - The SUID will keep threaded-safe and safe for concurrent access.
-//   - The SUID will keep unique across multiple machines if host_id is unique.
-//   - The SUID will keep unique on a single machine within one second.
-//   - The SUID can generate up to `4194303` unique IDs per second on a single machine. If more IDs are needed, consider using multiple machines with different host_ids.
-//   - The SUID is k-sortable.
-//   - The SUID is encoded to a 13-character string using a custom base32 encoding (a-z, 1-6).
-//   - The SUID can be used as primary key in database, and implement gorm's DataTypeInterface.
-//   - The SUID implements json.Marshaler, json.Unmarshaler, encoding.TextMarshaler, encoding.TextUnmarshaler, driver.Valuer, sql.Scanner interfaces.
-//   - The SUID can be used in distributed system without coordination.
-//   - The SUID is not a cryptographically secure random number.
 type SUID struct {
 	value int64
 }
 
-// HostID returns the host ID of the current machine.
-//
-//   - The unique host ID is important to ensure the uniqueness of SUIDs across multiple machines.
-//
-//   - You can set the host ID by setting the `SUID_HOST_ID` environment variable or using a `StatefulSet` in Kubernetes.
-//
-//   - If not set, the host ID will be derived from the hostname or local IP address, or randomly generated as a last resort.
-//
-//   - Some times, a unique host ID is usefull in your distributed systems.
-func HostID() int64 {
-	return _HOST_ID
-}
-
 const (
-	MAX_HOST int64 = 0xff        // 8 bits
-	MAX_SEQ  int64 = 0x3fffff    // 22 bits
-	MAX_TIME int64 = 0x1ffffffff // 33 bits
+	MAX_HOST  int64 = 0x7f        // 7 bits
+	MAX_SEQ   int64 = 0x7ffff     // 19 bits
+	MAX_TIME  int64 = 0x3ffffffff // 34 bits
+	MAX_GROUP int64 = 0x7         // 3 bits
 )
 
 var (
-	_WID_SEQ  = bitWidth(MAX_SEQ)  //SEQ bits width
-	_WID_HOST = bitWidth(MAX_HOST) //HOST bits width
-	_HOST_ID  = getHostID()
-	_SEQ      = atomic.Int64{}
-	_ENCODE   = "abcdefghijklmnopqrstuvwxyz123456" // custom base32 encoding map
-	_DECODE   = make(map[byte]byte, len(_ENCODE))  // custom base32 decoding map
+	_WID_SEQ     = bitWidth(MAX_SEQ)  //SEQ bits width
+	_WID_HOST    = bitWidth(MAX_HOST) //HOST bits width
+	_WID_TIME    = bitWidth(MAX_TIME) //TIME bits width
+	_HOST_ID     = getHostID()
+	_ENCODE      = "abcdefghijklmnopqrstuvwxyz123456" // custom base32 encoding map
+	_DECODE      = make(map[byte]byte, len(_ENCODE))  // custom base32 decoding map
+	_Builders    = make(map[int64]*builder)
+	_BuilderLock = sync.Mutex{}
 )
 
 func init() {
@@ -66,16 +49,26 @@ func init() {
 		_DECODE[_ENCODE[i]] = byte(i)
 	}
 }
-func bitWidth(max int64) int64 {
-	return int64(utf8.RuneCountInString(strconv.FormatInt(max, 2)))
+func bitWidth(max int64) int {
+	return utf8.RuneCountInString(strconv.FormatInt(max, 2))
 }
 
-// New generates a new SUID.
-func New() SUID {
-	seq := _SEQ.Add(1)
-	seq = seq % MAX_SEQ
-	thisTime := time.Now().UTC().Unix()
-	return SUID{thisTime<<(_WID_SEQ+_WID_HOST) | seq<<_WID_HOST | _HOST_ID}
+// New a SUID with the given group. If group is not given, it will use the default group 0.
+// The max group value is 7
+func New(group ...int64) SUID {
+	switch len(group) {
+	case 0:
+		return getBuilder(0).create()
+	case 1:
+		return getBuilder(group[0]).create()
+	default:
+		panic("[SUID New] Invalid parameter count.")
+	}
+}
+
+// Get current Host ID.
+func HostID() int64 {
+	return _HOST_ID
 }
 
 // FromInteger creates a SUID from an int64 value.
@@ -92,26 +85,6 @@ func FromString(str string) (SUID, error) {
 	return SUID{i}, nil
 }
 
-// Seq returns the sequence number of the SUID.
-func (s SUID) Seq() int64 {
-	return s.value >> _WID_HOST & MAX_SEQ
-}
-
-// Host returns the host ID of the SUID.
-func (s SUID) Host() int64 {
-	return s.value & MAX_HOST
-}
-
-// Time returns the timestamp of the SUID.
-func (s SUID) Time() int64 {
-	return s.value >> (_WID_SEQ + _WID_HOST) & MAX_TIME
-}
-
-// Verify the SUID is valid or not.
-func (s SUID) Verify() bool {
-	return s.Time() > 1745400000 // 2025-04-23 17:20:00
-}
-
 // String returns the base32-encoded string representation of the SUID.
 func (s SUID) String() string {
 	return string(encode(s.value))
@@ -120,6 +93,36 @@ func (s SUID) String() string {
 // Int returns the int64 value of the SUID.
 func (s SUID) Integer() int64 {
 	return s.value
+}
+
+// Host returns the host ID of the SUID.
+func (s SUID) Host() int64 {
+	return s.value & MAX_HOST
+}
+
+// Seq returns the sequence number of the SUID.
+func (s SUID) Seq() int64 {
+	return (s.value >> _WID_HOST) & MAX_SEQ
+}
+
+// Time returns the timestamp of the SUID.
+func (s SUID) Time() int64 {
+	return s.value >> (_WID_SEQ + _WID_HOST) & MAX_TIME
+}
+
+// Group returns the group of the SUID.
+func (s SUID) Group() int64 {
+	return (s.value >> (_WID_TIME + _WID_SEQ + _WID_HOST)) & MAX_GROUP
+}
+
+// Verify the SUID is valid or not.
+func (s SUID) Verify() bool {
+	return s.Group() >= 0 && s.Group() <= MAX_GROUP && s.Seq() >= 0 && s.Seq() <= MAX_SEQ && s.Time() >= 0 && s.Time() <= MAX_TIME && s.Time() > 1745400000 // 2025-04-23 17:20:00
+}
+
+// Get the description of the SUID.
+func (s SUID) Description() string {
+	return fmt.Sprintf("Group:%d, Time:%d, Seq:%d, Host:%d", s.Group(), s.Time(), s.Seq(), s.Host())
 }
 
 // MarshalJSON implements the json.Marshaler interface.
@@ -201,7 +204,66 @@ func decode(data []byte) (int64, error) {
 	return value, nil
 }
 
-// getHostID returns the host ID of the current machine.
+type builder struct {
+	seq      int64
+	thisTime int64
+	zeroTime int64
+	seqCount int64
+	group    int64
+	mx       sync.Mutex
+}
+
+// getBuilder returns the builder for the given group. If the builder does not exist, it will create a new one.
+func getBuilder(g int64) *builder {
+	_BuilderLock.Lock()
+	defer _BuilderLock.Unlock()
+	if g < 0 || g > MAX_GROUP {
+		panic(fmt.Sprintf("[SUID] Invalid input group: %d", g))
+	}
+	b, ok := _Builders[g]
+	if !ok {
+		b = newBuilder(g)
+		_Builders[g] = b
+	}
+	return b
+}
+
+// newBuilder creates a new builder for the given group.
+func newBuilder(group int64) *builder {
+	return &builder{seq: 0, thisTime: 0, zeroTime: time.Now().Unix(), seqCount: 0, group: group}
+}
+
+// create creates a new SUID for the given group.
+func (b *builder) create() SUID {
+	b.mx.Lock()
+	defer b.mx.Unlock()
+	b.thisTime = time.Now().Unix()
+	if b.thisTime < b.zeroTime { // clock moved backwards
+		panic("[SUID] Fatal Error!!! Host Clock moved backwards!")
+	}
+	b.seq++
+	if b.seq > MAX_SEQ { // overflow
+		b.seq = 0
+	}
+	if b.thisTime == b.zeroTime {
+		b.seqCount++
+		if b.seqCount > MAX_SEQ {
+			b.seqCount = 0
+			b.thisTime = b.zeroTime + 1
+			b.zeroTime = b.thisTime
+			dur := time.Until(time.Unix(b.thisTime, 0))
+			if dur > 0 {
+				fmt.Printf("[SUID][WARN] Force wait(%s) to next second.\n", dur)
+				time.Sleep(dur)
+			}
+		}
+	} else {
+		b.seqCount = 0
+		b.zeroTime = b.thisTime
+	}
+	return SUID{b.group<<(_WID_TIME+_WID_SEQ+_WID_HOST) | b.thisTime<<(_WID_SEQ+_WID_HOST) | b.seq<<_WID_HOST | _HOST_ID}
+}
+
 func getHostID() int64 {
 	// read SUID_HOST_ID from environment firstly
 	str := os.Getenv("SUID_HOST_ID")

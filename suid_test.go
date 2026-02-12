@@ -103,11 +103,6 @@ func BenchmarkGenerate(b *testing.B) {
 			New()
 		}
 	})
-	b.Run("NewString", func(b *testing.B) {
-		for b.Loop() {
-			_ = id.String()
-		}
-	})
 	b.Run("NewFromInteger", func(b *testing.B) {
 		for b.Loop() {
 			FromInteger(i)
