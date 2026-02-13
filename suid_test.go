@@ -15,14 +15,12 @@ type User struct {
 }
 
 func TestEncode(t *testing.T) {
-
-	id := New()
+	id := New(5)
 	fmt.Println(id.Host())
-	t.Log(id)
-	t.Log(id.Integer())
+	t.Log(id.Description())
 	str := id.String()
 	id2, err := FromString(str)
-	t.Log(id2)
+	t.Log(id2.Description())
 	if err != nil {
 		t.Error(err)
 	}

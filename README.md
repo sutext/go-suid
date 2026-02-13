@@ -17,11 +17,9 @@ suid is a high-performance globally unique identifier generation library that pr
 - Maximum concurrent transactions is 524,288 per second. It will automatically wait for the next second
 
 ### GUID (Globally Unique Identifier)
-- 10-byte array with structure: group ID(1 byte)-timestamp(6 bytes)-sequence number(2 bytes)-host ID(1 byte)
+- 10-byte array with structure: group ID(4 bit)-timestamp(7 bytes)-sequence number(12 bit)-host ID(1 byte)
 - Support parsing from string
 - Support JSON serialization and deserialization
-- Support database driver interface
-- Support GORM data type interface
 
 ## Installation
 

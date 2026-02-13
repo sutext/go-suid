@@ -9,14 +9,20 @@ import (
 
 // GUID is a globally unique identifier.
 //
-// A GUID is a 10-byte array that is unique across time and space.
+// The GUID is a 10-byte array that is unique across time and space.
 // The first byte is the group ID, the next 6 bytes are the timestamp in microseconds,
 // the next 2 bytes are the sequence number, and the last byte is the host ID.
+// Waring: Do not modify the GUID manually.
 type GUID [10]byte
 
+const (
+	GUID_MAX_GROUP uint8 = 0x0f
+	GUID_MAX_SEQ   int64 = 0x3fff
+	GUID_MAX_TIME  int64 = 0x3f_ffff_ffff_ffff
+)
+
 var (
-	_seq     atomic.Int64
-	_max_seq int64 = 0x1ffff
+	_seq atomic.Int64
 )
 
 // NewGUID creates a new GUID for the given group.
@@ -29,21 +35,21 @@ func NewGUID(group ...uint8) (u GUID) {
 	if len(group) > 0 {
 		g = group[0]
 	}
-	if g > uint8(MAX_GROUP) {
-		panic(fmt.Sprintf("[SUID] Invalid input group: %d", g))
+	if g > GUID_MAX_GROUP {
+		panic(fmt.Sprintf("[GUID] Invalid input group: %d", g))
 	}
 	time := time.Now().UnixMicro()
-	seq := _seq.Add(1) % _max_seq
-	u[0] = g<<5 | (byte(time>>48) & 0x1f)
-	u[1] = byte(time >> 40)
-	u[2] = byte(time >> 32)
-	u[3] = byte(time >> 24)
-	u[4] = byte(time >> 16)
-	u[5] = byte(time >> 8)
-	u[6] = byte(time)
-	u[7] = byte(seq >> 9)
-	u[8] = byte(seq >> 1)
-	u[9] = byte((seq << 7 & 0x80) | _HOST_ID)
+	seq := _seq.Add(1) % GUID_MAX_SEQ
+	u[0] = g<<4 | (byte(time>>50) & 0x0f)
+	u[1] = byte(time >> 42)
+	u[2] = byte(time >> 34)
+	u[3] = byte(time >> 26)
+	u[4] = byte(time >> 18)
+	u[5] = byte(time >> 10)
+	u[6] = byte(time >> 2)
+	u[7] = byte((time << 6 & 0xc0) | (seq >> 8 & 0x3f))
+	u[8] = byte(seq)
+	u[9] = _HOST_ID
 	return u
 }
 
@@ -57,115 +63,111 @@ func ParseGUID(str string) (u GUID, err error) {
 }
 
 // String returns the string representation of the GUID.
-func (s GUID) String() string {
-	return string(encodeGUID(s))
+func (g GUID) String() string {
+	bytes := make([]byte, 16)
+	g.encodeInto(bytes)
+	return string(bytes)
 }
 
 // Group returns the group ID.
-func (s GUID) Group() uint8 {
-	return s[0] >> 5
+func (g GUID) Group() uint8 {
+	return g[0] >> 4
 }
 
 // HostID returns the host ID.
-func (s GUID) HostID() int64 {
-	return int64(s[9] & 0x7f)
+func (g GUID) HostID() uint8 {
+	return g[9]
 }
 
 // Seq returns the sequence number.
-func (s GUID) Seq() int64 {
-	return int64(s[7])<<9 | int64(s[8])<<1 | int64(s[9])>>7
+func (g GUID) Seq() int64 {
+	return int64(g[7]&0x3f)<<8 | int64(g[8])
 }
 
 // Time returns the timestamp in microseconds.
-func (s GUID) Time() int64 {
-	return int64(s[6]) | int64(s[5])<<8 | int64(s[4])<<16 | int64(s[3])<<24 | int64(s[2])<<32 | int64(s[1])<<40 | int64(s[0]&0x1f)<<48
+func (g GUID) Time() int64 {
+	return int64(g[0]&0x0f)<<50 | int64(g[1])<<42 | int64(g[2])<<34 | int64(g[3])<<26 | int64(g[4])<<18 | int64(g[5])<<10 | int64(g[6])<<2 | int64(g[7]>>6&0x3f)
 }
-func (s GUID) Verify() bool {
-	return s.Group() <= uint8(MAX_GROUP) && s.HostID() <= MAX_HOST && s.Seq() <= MAX_SEQ && s.Time() >= 1770904743122773
+func (g GUID) Verify() bool {
+	return g.Group() <= GUID_MAX_GROUP && g.Seq() <= GUID_MAX_SEQ && g.Time() >= 1770904743122773
 }
 
 // Description returns a human-readable description of the GUID.
-func (s GUID) Description() string {
-	return fmt.Sprintf("group: %d, host: %d, seq: %d, time: %d", s.Group(), s.HostID(), s.Seq(), s.Time())
+func (g GUID) Description() string {
+	return fmt.Sprintf("group: %d, host: %d, seq: %d, time: %v", g.Group(), g.HostID(), g.Seq(), time.UnixMicro(g.Time()))
 }
 
 // MarshalJSON implements the json.Marshaler interface.
-func (s GUID) MarshalJSON() ([]byte, error) {
+func (g GUID) MarshalJSON() ([]byte, error) {
 	result := make([]byte, 18)
 	result[0] = '"'
-	copy(result[1:], encodeGUID(s))
+	g.encodeInto(result[1:])
 	result[17] = '"'
 	return result, nil
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
-func (s *GUID) UnmarshalJSON(data []byte) error {
+func (g *GUID) UnmarshalJSON(data []byte) error {
 	if len(data) != 18 || data[0] != '"' || data[17] != '"' {
 		return fmt.Errorf("invalid guid json string")
 	}
-	return s.UnmarshalText(data[1:17])
+	return g.UnmarshalText(data[1:17])
 }
 
 // MarshalText implements the encoding.TextMarshaler interface.
-func (s GUID) MarshalText() ([]byte, error) {
-	return encodeGUID(s), nil
+func (g GUID) MarshalText() ([]byte, error) {
+	bytes := make([]byte, 16)
+	g.encodeInto(bytes)
+	return bytes, nil
 }
 
 // UnmarshalText implements the encoding.TextUnmarshaler interface.
-func (s *GUID) UnmarshalText(data []byte) error {
+func (g *GUID) UnmarshalText(data []byte) error {
 	u, err := decodeGUID(data)
 	if err != nil {
 		return err
 	}
-	*s = u
+	*g = u
 	return nil
 }
 
 // Value implements the driver.Valuer interface.
-func (s GUID) Value() (driver.Value, error) {
-	return s.String(), nil
+func (g GUID) Value() (driver.Value, error) {
+	return g.String(), nil
 }
 
 // Scan implements the sql.Scanner interface.
-func (s *GUID) Scan(value any) error {
-	switch v := value.(type) {
-	case string:
-		u, err := ParseGUID(v)
-		if err != nil {
-			return err
-		}
-		*s = u
-		return nil
-	default:
-		return fmt.Errorf("unsupported type for SUID: %T", value)
+func (g *GUID) Scan(value any) error {
+	str, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("unsupported type for GUID: %T", value)
 	}
+	u, err := ParseGUID(str)
+	if err != nil {
+		return err
+	}
+	*g = u
+	return nil
 }
 
-// GormDataType implements the gorm.DataTypeInterface interface.
-func (GUID) GormDataType() string {
-	return "string"
-}
+func (g GUID) encodeInto(bytes []byte) {
+	bytes[0] = _ENCODE[g[0]>>3]
+	bytes[1] = _ENCODE[g[0]<<2&0x1f|g[1]>>6]
+	bytes[2] = _ENCODE[g[1]>>1&0x1f]
+	bytes[3] = _ENCODE[g[1]<<4&0x1f|g[2]>>4]
+	bytes[4] = _ENCODE[g[2]<<1&0x1f|g[3]>>7]
+	bytes[5] = _ENCODE[g[3]>>2&0x1f]
+	bytes[6] = _ENCODE[g[3]<<3&0x1f|g[4]>>5]
+	bytes[7] = _ENCODE[g[4]&0x1f]
 
-func encodeGUID(u GUID) []byte {
-	bytes := make([]byte, 16)
-	bytes[0] = _ENCODE[u[0]>>3]
-	bytes[1] = _ENCODE[u[0]<<2&0x1f|u[1]>>6]
-	bytes[2] = _ENCODE[u[1]>>1&0x1f]
-	bytes[3] = _ENCODE[u[1]<<4&0x1f|u[2]>>4]
-	bytes[4] = _ENCODE[u[2]<<1&0x1f|u[3]>>7]
-	bytes[5] = _ENCODE[u[3]>>2&0x1f]
-	bytes[6] = _ENCODE[u[3]<<3&0x1f|u[4]>>5]
-	bytes[7] = _ENCODE[u[4]&0x1f]
-
-	bytes[8] = _ENCODE[u[5]>>3]
-	bytes[9] = _ENCODE[u[5]<<2&0x1f|u[6]>>6]
-	bytes[10] = _ENCODE[(u[6]>>1)&0x1f]
-	bytes[11] = _ENCODE[u[6]<<4&0x1f|u[7]>>4]
-	bytes[12] = _ENCODE[u[7]<<1&0x1f|u[8]>>7]
-	bytes[13] = _ENCODE[u[8]>>2&0x1f]
-	bytes[14] = _ENCODE[u[8]<<3&0x1f|u[9]>>5]
-	bytes[15] = _ENCODE[u[9]&0x1f]
-	return bytes
+	bytes[8] = _ENCODE[g[5]>>3]
+	bytes[9] = _ENCODE[g[5]<<2&0x1f|g[6]>>6]
+	bytes[10] = _ENCODE[(g[6]>>1)&0x1f]
+	bytes[11] = _ENCODE[g[6]<<4&0x1f|g[7]>>4]
+	bytes[12] = _ENCODE[g[7]<<1&0x1f|g[8]>>7]
+	bytes[13] = _ENCODE[g[8]>>2&0x1f]
+	bytes[14] = _ENCODE[g[8]<<3&0x1f|g[9]>>5]
+	bytes[15] = _ENCODE[g[9]&0x1f]
 }
 
 // decode decodes a base32-encoded string to a uint64 value.

@@ -12,7 +12,7 @@ import (
 
 func TestGUIDEncode(t *testing.T) {
 	var last time.Time
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		now := time.Now()
 		if !last.IsZero() {
 			diff := now.Sub(last)
@@ -20,9 +20,9 @@ func TestGUIDEncode(t *testing.T) {
 		}
 		last = now
 	}
-	tm := time.UnixMicro(0x7f_ffff_ffff_ffff)
-	fmt.Printf("time: %v,now: %d,timeWidth: %d\n", tm, time.Now().UnixMicro(), bitWidth(0x7f_ffff_ffff_ffff))
-	id := NewGUID()
+	tm := time.UnixMicro(0x3f_ffff_ffff_ffff)
+	fmt.Printf("time: %v,now: %d,timeWidth: %d\n", tm, time.Now().UnixMicro(), bitWidth(0x3f_ffff_ffff_ffff))
+	id := NewGUID(1)
 	t.Log(HostID())
 	t.Log(id.Description())
 	id2, err := ParseGUID(id.String())

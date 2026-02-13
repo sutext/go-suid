@@ -1,9 +1,8 @@
 package suid
 
 import (
-	"database/sql/driver"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"os"
 	"strconv"
@@ -22,20 +21,17 @@ import (
 //   - The max number of concurrent transactions is 524288 per second. It will wait for next second automatically
 //   - Recommend to use SUID as primary key for database table to ensure the uniqueness and performance.
 //   - The SUID will keep threaded-safe and safe for concurrent access.
-type SUID struct {
-	value int64
-}
+type SUID uint64
 
 const (
-	MAX_HOST  int64 = 0x7f        // 7 bits
 	MAX_SEQ   int64 = 0x7ffff     // 19 bits
 	MAX_TIME  int64 = 0x3ffffffff // 34 bits
-	MAX_GROUP int64 = 0x7         // 3 bits
+	MAX_GROUP uint8 = 0x7         // 3 bits
 )
 
 var (
 	_WID_SEQ  = bitWidth(MAX_SEQ)  //SEQ bits width
-	_WID_HOST = bitWidth(MAX_HOST) //HOST bits width
+	_WID_HOST = 8                  //HOST bits width
 	_WID_TIME = bitWidth(MAX_TIME) //TIME bits width
 	_HOST_ID  = getHostID()
 	_ENCODE   = "abcdefghijklmnopqrstuvwxyz123456" // custom base32 encoding map
@@ -54,7 +50,7 @@ func bitWidth(max int64) int {
 
 // New a SUID with the given group. If group is not given, it will use the default group 0.
 // The max group value is 7
-func New(group ...int64) SUID {
+func New(group ...uint8) SUID {
 	switch len(group) {
 	case 0:
 		return getBuilder(0).create()
@@ -66,69 +62,67 @@ func New(group ...int64) SUID {
 }
 
 // Get current Host ID.
-func HostID() int64 {
+func HostID() uint8 {
 	return _HOST_ID
 }
 
-// FromInteger creates a SUID from an int64 value.
-func FromInteger(value int64) SUID {
-	return SUID{value}
+// FromInteger creates a SUID from an uint64 value.
+func FromInteger(value uint64) SUID {
+	return SUID(value)
 }
 
 // FromString creates a SUID from a suid string.
-func FromString(str string) (SUID, error) {
-	i, err := decode([]byte(str))
-	if err != nil {
-		return SUID{}, err
-	}
-	return SUID{i}, nil
+func FromString(str string) (s SUID, err error) {
+	return decodeSUID([]byte(str))
 }
 
 // String returns the base32-encoded string representation of the SUID.
 func (s SUID) String() string {
-	return string(encode(s.value))
+	bytes := make([]byte, 13)
+	s.encodeInto(bytes)
+	return string(bytes)
 }
 
-// Int returns the int64 value of the SUID.
-func (s SUID) Integer() int64 {
-	return s.value
+// Int returns the uint64 value of the SUID.
+func (s SUID) Integer() uint64 {
+	return uint64(s)
 }
 
 // Host returns the host ID of the SUID.
-func (s SUID) Host() int64 {
-	return s.value & MAX_HOST
+func (s SUID) Host() uint8 {
+	return uint8(s)
 }
 
 // Seq returns the sequence number of the SUID.
 func (s SUID) Seq() int64 {
-	return (s.value >> _WID_HOST) & MAX_SEQ
+	return (int64(s) >> _WID_HOST) & MAX_SEQ
 }
 
 // Time returns the timestamp of the SUID.
 func (s SUID) Time() int64 {
-	return s.value >> (_WID_SEQ + _WID_HOST) & MAX_TIME
+	return int64(s) >> (_WID_SEQ + _WID_HOST) & MAX_TIME
 }
 
 // Group returns the group of the SUID.
-func (s SUID) Group() int64 {
-	return (s.value >> (_WID_TIME + _WID_SEQ + _WID_HOST)) & MAX_GROUP
+func (s SUID) Group() uint8 {
+	return uint8(uint64(s)>>(_WID_TIME+_WID_SEQ+_WID_HOST)) & MAX_GROUP
 }
 
 // Verify the SUID is valid or not.
 func (s SUID) Verify() bool {
-	return s.Group() <= MAX_GROUP && s.Host() <= MAX_HOST && s.Seq() <= MAX_SEQ && s.Time() <= MAX_TIME && s.Time() > 1745400000 // 2025-04-23 17:20:00
+	return s.Group() <= MAX_GROUP && s.Seq() <= MAX_SEQ && s.Time() <= MAX_TIME && s.Time() > 1745400000 // 2025-04-23 17:20:00
 }
 
 // Get the description of the SUID.
 func (s SUID) Description() string {
-	return fmt.Sprintf("Group:%d, Time:%d, Seq:%d, Host:%d", s.Group(), s.Time(), s.Seq(), s.Host())
+	return fmt.Sprintf("Group:%d, Time:%v, Seq:%d, Host:%d", s.Group(), time.Unix(s.Time(), 0), s.Seq(), s.Host())
 }
 
 // MarshalJSON implements the json.Marshaler interface.
 func (s SUID) MarshalJSON() ([]byte, error) {
 	result := make([]byte, 15)
 	result[0] = '"'
-	copy(result[1:], encode(s.value))
+	s.encodeInto(result[1:])
 	result[14] = '"'
 	return result, nil
 }
@@ -143,64 +137,43 @@ func (s *SUID) UnmarshalJSON(data []byte) error {
 
 // MarshalText implements the encoding.TextMarshaler interface.
 func (s SUID) MarshalText() ([]byte, error) {
-	return encode(s.value), nil
+	bytes := make([]byte, 13)
+	s.encodeInto(bytes)
+	return bytes, nil
 }
 
 // UnmarshalText implements the encoding.TextUnmarshaler interface.
 func (s *SUID) UnmarshalText(data []byte) error {
-	i, err := decode(data)
+	i, err := decodeSUID(data)
 	if err != nil {
 		return err
 	}
-	s.value = i
+	*s = i
 	return nil
 }
 
-// Value implements the driver.Valuer interface.
-func (s SUID) Value() (driver.Value, error) {
-	return s.value, nil
-}
-
-// Scan implements the sql.Scanner interface.
-func (s *SUID) Scan(value any) error {
-	switch v := value.(type) {
-	case int64:
-		s.value = v
-		return nil
-	default:
-		return fmt.Errorf("unsupported type for SUID: %T", value)
-	}
-}
-
-// GormDataType implements the gorm.DataTypeInterface interface.
-func (SUID) GormDataType() string {
-	return "bigint"
-}
-
 // custom base32 encoding
-func encode(i int64) []byte {
-	bytes := make([]byte, 13)
+func (s SUID) encodeInto(bytes []byte) {
 	for j := 12; j >= 0; j-- {
-		bytes[j] = _ENCODE[i&0x1f]
-		i >>= 5
+		bytes[j] = _ENCODE[s&0x1f]
+		s >>= 5
 	}
-	return bytes
 }
 
-// decode decodes a base32-encoded string to a uint64 value.
-func decode(data []byte) (int64, error) {
+// decodeSUID decodes a base32-encoded string to a uuint64 value.
+func decodeSUID(data []byte) (SUID, error) {
 	if len(data) != 13 {
 		return 0, fmt.Errorf("invalid suid string length")
 	}
-	var value int64
+	var value uint64
 	for i := range 13 {
 		idx, ok := _DECODE[data[i]]
 		if !ok {
 			return 0, fmt.Errorf("invalid character in suid string: %c", data[i])
 		}
-		value = (value << 5) | int64(idx)
+		value = (value << 5) | uint64(idx)
 	}
-	return value, nil
+	return SUID(value), nil
 }
 
 type builder struct {
@@ -208,13 +181,13 @@ type builder struct {
 	thisTime int64
 	zeroTime int64
 	seqCount int64
-	group    int64
+	group    uint64
 	mx       sync.Mutex
 }
 
 // getBuilder returns the builder for the given group. If the builder does not exist, it will create a new one.
-func getBuilder(g int64) *builder {
-	if g < 0 || g > MAX_GROUP {
+func getBuilder(g uint8) *builder {
+	if g > MAX_GROUP {
 		panic(fmt.Sprintf("[SUID] Invalid input group: %d", g))
 	}
 	b, _ := _Builders.LoadOrStore(g, newBuilder(g))
@@ -222,8 +195,8 @@ func getBuilder(g int64) *builder {
 }
 
 // newBuilder creates a new builder for the given group.
-func newBuilder(group int64) *builder {
-	return &builder{seq: 0, thisTime: 0, zeroTime: time.Now().Unix(), seqCount: 0, group: group}
+func newBuilder(group uint8) *builder {
+	return &builder{seq: 0, thisTime: 0, zeroTime: time.Now().Unix(), seqCount: 0, group: uint64(group)}
 }
 
 // create creates a new SUID for the given group.
@@ -254,16 +227,16 @@ func (b *builder) create() SUID {
 		b.seqCount = 0
 		b.zeroTime = b.thisTime
 	}
-	return SUID{b.group<<(_WID_TIME+_WID_SEQ+_WID_HOST) | b.thisTime<<(_WID_SEQ+_WID_HOST) | b.seq<<_WID_HOST | _HOST_ID}
+	return SUID(b.group<<(_WID_TIME+_WID_SEQ+_WID_HOST) | uint64(b.thisTime)<<(_WID_SEQ+_WID_HOST) | uint64(b.seq)<<_WID_HOST | uint64(_HOST_ID&0x7f))
 }
 
-func getHostID() int64 {
+func getHostID() uint8 {
 	// read SUID_HOST_ID from environment firstly
 	str := os.Getenv("SUID_HOST_ID")
 	if str != "" {
 		id, err := strconv.ParseInt(str, 10, 64)
 		if err == nil {
-			return id & MAX_HOST
+			return uint8(id)
 		}
 	}
 	// read statefulset id from k8s environment secondly
@@ -276,7 +249,7 @@ func getHostID() int64 {
 		str := parts[len(parts)-1]
 		id, err := strconv.ParseInt(str, 10, 64)
 		if err == nil {
-			return id & MAX_HOST
+			return uint8(id)
 		}
 	}
 	// read local ip address thirdly
@@ -285,12 +258,11 @@ func getHostID() int64 {
 		if len(parts) == 4 {
 			last, err := strconv.ParseInt(parts[3], 10, 64)
 			if err == nil {
-				return last & MAX_HOST
+				return uint8(last)
 			}
 		}
 	}
-	// finally, random a host id
-	return rand.Int63() & MAX_HOST
+	return uint8(rand.Int())
 }
 
 // getLocalIP retrieves the non-loopback local IPv4 address of the machine.
