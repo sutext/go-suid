@@ -14,6 +14,7 @@ import (
 // The GUID is a 10-byte array that is unique across time and space.
 // The first byte is the group ID, the next 6 bytes are the timestamp in microseconds,
 // the next 2 bytes are the sequence number, and the last byte is the host ID.
+// The maximum supported timestamp is 2540-11-08 07:35:09.481983 +0800 CST
 // Waring: Do not modify the GUID manually.
 type GUID [10]byte
 

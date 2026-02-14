@@ -20,6 +20,7 @@ suid is a high-performance globally unique identifier generation library that pr
 - 10-byte array with structure: group ID(4 bit)-timestamp(7 bytes)-sequence number(12 bit)-host ID(1 byte)
 - Support parsing from string
 - Support JSON serialization and deserialization
+- The maximum supported timestamp is `2540-11-08 07:35:09.481983 +0800 CST`
 
 ## Installation
 
