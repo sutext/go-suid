@@ -29,14 +29,14 @@ const (
 )
 
 var (
-	_WID_SEQ  = bitWidth(MAX_SEQ)    //SEQ bits width
-	_WID_HOST = 8                    //HOST bits width
-	_WID_TIME = bitWidth(MAX_TIME)   //TIME bits width
-	_Builders = map[Group]*builder{} // group -> builder
+	_WID_SEQ  = bitWidth(MAX_SEQ)  //SEQ bits width
+	_WID_HOST = 8                  //HOST bits width
+	_WID_TIME = bitWidth(MAX_TIME) //TIME bits width
+	_Builders []*builder           // group -> builder
 )
 
 func init() {
-	_Builders = make(map[Group]*builder, MAX_GROUP+1)
+	_Builders = make([]*builder, MAX_GROUP+1)
 	for g := Group(0); g <= MAX_GROUP; g++ {
 		_Builders[g] = &builder{group: uint64(g)}
 	}
@@ -47,16 +47,13 @@ func bitWidth(max int64) int {
 
 // New a SUID with the given group. If group is not given, it will use the default group 0.
 // The max group value is 7
+// Warning: If the SUID is generated more than 524288 per second, it will wait for next second automatically.
 func New(group ...Group) SUID {
 	var g Group
 	if len(group) > 0 {
 		g = group[0]
 	}
-	b, ok := _Builders[g]
-	if !ok {
-		panic(fmt.Sprintf("[SUID] Invalid input group: %d", g))
-	}
-	return b.create()
+	return _Builders[g].create()
 }
 
 // Parse creates a SUID from a suid string.
