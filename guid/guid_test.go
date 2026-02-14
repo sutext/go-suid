@@ -3,6 +3,7 @@ package suid
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,11 @@ import (
 )
 
 func TestGUIDEncode(t *testing.T) {
+	_seq.Add(math.MaxUint64 - 20)
+	for range 50 {
+		fmt.Printf("seq: %d\n", _seq.Add(1)%MAX_SEQ)
+	}
+
 	var last time.Time
 	for range 10 {
 		now := time.Now()
@@ -21,11 +27,10 @@ func TestGUIDEncode(t *testing.T) {
 		last = now
 	}
 	tm := time.UnixMicro(0x3f_ffff_ffff_ffff)
-	fmt.Printf("time: %v,now: %d,timeWidth: %d\n", tm, time.Now().UnixMicro(), bitWidth(0x3f_ffff_ffff_ffff))
-	id := NewGUID(1)
-	t.Log(HostID())
+	fmt.Printf("time: %v,now: %d\n", tm, time.Now().UnixMicro())
+	id := New(1)
 	t.Log(id.Description())
-	id2, err := ParseGUID(id.String())
+	id2, err := Parse(id.String())
 	if err != nil {
 		t.Error(err)
 	}
@@ -44,7 +49,7 @@ type GUser struct {
 
 func TestGUIDJson(t *testing.T) {
 	u := GUser{
-		ID:   NewGUID(),
+		ID:   New(),
 		Name: "Alice",
 		Age:  25,
 	}
@@ -69,30 +74,30 @@ func TestGUIDJson(t *testing.T) {
 func TestGUIDConcurencey(t *testing.T) {
 	var suids sync.Map
 	t1 := time.Now()
-	max := MAX_SEQ
+	max := 0x7ffff
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		for range max {
-			id := NewGUID()
+			id := New()
 			suids.Store(id.String(), id)
 		}
 	})
 	wg.Go(func() {
 		for range max {
-			id := NewGUID()
+			id := New()
 			suids.Store(id.String(), id)
 		}
 	})
 	wg.Go(func() {
 		for range max {
-			id := NewGUID()
+			id := New()
 			suids.Store(id.String(), id)
 		}
 	})
 	wg.Wait()
 	t2 := time.Now()
 	fmt.Println("time used:", t2.Sub(t1))
-	var len int64
+	var len int
 	suids.Range(func(key, value any) bool {
 		len++
 		return true
@@ -106,13 +111,25 @@ func TestGUIDConcurencey(t *testing.T) {
 func BenchmarkGUIDEncode(b *testing.B) {
 	b.Run("NewGUID", func(b *testing.B) {
 		for b.Loop() {
-			_ = NewGUID().String()
+			_ = New().String()
 		}
 	})
 	b.Run("NewUUID", func(b *testing.B) {
 		for b.Loop() {
 			u, _ := uuid.NewV7()
 			_ = u.String()
+		}
+	})
+	b.Run("GUID", func(b *testing.B) {
+		for b.Loop() {
+			str := New().String()
+			Parse(str)
+		}
+	})
+	b.Run("UUID", func(b *testing.B) {
+		for b.Loop() {
+			u, _ := uuid.NewV7()
+			uuid.Parse(u.String())
 		}
 	})
 }

@@ -2,14 +2,12 @@ package suid
 
 import (
 	"fmt"
-	"math/rand/v2"
-	"net"
-	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"sutext.github.io/suid/internal/coder"
 )
 
 // Snowflake Unique Identifier SUID is a 64-bit integer.
@@ -22,26 +20,25 @@ import (
 //   - Recommend to use SUID as primary key for database table to ensure the uniqueness and performance.
 //   - The SUID will keep threaded-safe and safe for concurrent access.
 type SUID uint64
+type Group uint8
 
 const (
+	MAX_GROUP Group = 0x7         // 3 bits
 	MAX_SEQ   int64 = 0x7ffff     // 19 bits
 	MAX_TIME  int64 = 0x3ffffffff // 34 bits
-	MAX_GROUP uint8 = 0x7         // 3 bits
 )
 
 var (
-	_WID_SEQ  = bitWidth(MAX_SEQ)  //SEQ bits width
-	_WID_HOST = 8                  //HOST bits width
-	_WID_TIME = bitWidth(MAX_TIME) //TIME bits width
-	_HOST_ID  = getHostID()
-	_ENCODE   = "abcdefghijklmnopqrstuvwxyz123456" // custom base32 encoding map
-	_DECODE   = make(map[byte]byte, len(_ENCODE))  // custom base32 decoding map
-	_Builders = sync.Map{}
+	_WID_SEQ  = bitWidth(MAX_SEQ)    //SEQ bits width
+	_WID_HOST = 8                    //HOST bits width
+	_WID_TIME = bitWidth(MAX_TIME)   //TIME bits width
+	_Builders = map[Group]*builder{} // group -> builder
 )
 
 func init() {
-	for i := 0; i < len(_ENCODE); i++ {
-		_DECODE[_ENCODE[i]] = byte(i)
+	_Builders = make(map[Group]*builder, MAX_GROUP+1)
+	for g := Group(0); g <= MAX_GROUP; g++ {
+		_Builders[g] = &builder{group: uint64(g)}
 	}
 }
 func bitWidth(max int64) int {
@@ -50,30 +47,22 @@ func bitWidth(max int64) int {
 
 // New a SUID with the given group. If group is not given, it will use the default group 0.
 // The max group value is 7
-func New(group ...uint8) SUID {
-	switch len(group) {
-	case 0:
-		return getBuilder(0).create()
-	case 1:
-		return getBuilder(group[0]).create()
-	default:
-		panic("[SUID New] Invalid parameter count.")
+func New(group ...Group) SUID {
+	var g Group
+	if len(group) > 0 {
+		g = group[0]
 	}
+	b, ok := _Builders[g]
+	if !ok {
+		panic(fmt.Sprintf("[SUID] Invalid input group: %d", g))
+	}
+	return b.create()
 }
 
-// Get current Host ID.
-func HostID() uint8 {
-	return _HOST_ID
-}
-
-// FromInteger creates a SUID from an uint64 value.
-func FromInteger(value uint64) SUID {
-	return SUID(value)
-}
-
-// FromString creates a SUID from a suid string.
-func FromString(str string) (s SUID, err error) {
-	return decodeSUID([]byte(str))
+// Parse creates a SUID from a suid string.
+func Parse(str string) (s SUID, err error) {
+	err = s.decodeFrom([]byte(str))
+	return s, err
 }
 
 // String returns the base32-encoded string representation of the SUID.
@@ -83,13 +72,8 @@ func (s SUID) String() string {
 	return string(bytes)
 }
 
-// Int returns the uint64 value of the SUID.
-func (s SUID) Integer() uint64 {
-	return uint64(s)
-}
-
-// Host returns the host ID of the SUID.
-func (s SUID) Host() uint8 {
+// HostID returns the host ID of the SUID.
+func (s SUID) HostID() uint8 {
 	return uint8(s)
 }
 
@@ -98,14 +82,14 @@ func (s SUID) Seq() int64 {
 	return (int64(s) >> _WID_HOST) & MAX_SEQ
 }
 
-// Time returns the timestamp of the SUID.
+// Time returns the timestamp in seconds of the SUID.
 func (s SUID) Time() int64 {
 	return int64(s) >> (_WID_SEQ + _WID_HOST) & MAX_TIME
 }
 
 // Group returns the group of the SUID.
-func (s SUID) Group() uint8 {
-	return uint8(uint64(s)>>(_WID_TIME+_WID_SEQ+_WID_HOST)) & MAX_GROUP
+func (s SUID) Group() Group {
+	return Group(uint64(s)>>(_WID_TIME+_WID_SEQ+_WID_HOST)) & MAX_GROUP
 }
 
 // Verify the SUID is valid or not.
@@ -115,7 +99,7 @@ func (s SUID) Verify() bool {
 
 // Get the description of the SUID.
 func (s SUID) Description() string {
-	return fmt.Sprintf("Group:%d, Time:%v, Seq:%d, Host:%d", s.Group(), time.Unix(s.Time(), 0), s.Seq(), s.Host())
+	return fmt.Sprintf("Group:%d, Time:%v, Seq:%d, Host:%d", s.Group(), time.Unix(s.Time(), 0), s.Seq(), s.HostID())
 }
 
 // MarshalJSON implements the json.Marshaler interface.
@@ -144,80 +128,61 @@ func (s SUID) MarshalText() ([]byte, error) {
 
 // UnmarshalText implements the encoding.TextUnmarshaler interface.
 func (s *SUID) UnmarshalText(data []byte) error {
-	i, err := decodeSUID(data)
-	if err != nil {
-		return err
-	}
-	*s = i
-	return nil
+	return s.decodeFrom(data)
 }
 
 // custom base32 encoding
 func (s SUID) encodeInto(bytes []byte) {
 	for j := 12; j >= 0; j-- {
-		bytes[j] = _ENCODE[s&0x1f]
+		bytes[j] = coder.ENCODE[s&0x1f]
 		s >>= 5
 	}
 }
 
-// decodeSUID decodes a base32-encoded string to a uuint64 value.
-func decodeSUID(data []byte) (SUID, error) {
+// decodeFrom decodes a base32-encoded string to a uuint64 value.
+func (s *SUID) decodeFrom(data []byte) error {
 	if len(data) != 13 {
-		return 0, fmt.Errorf("invalid suid string length")
+		return fmt.Errorf("invalid suid string length")
 	}
 	var value uint64
 	for i := range 13 {
-		idx, ok := _DECODE[data[i]]
+		idx, ok := coder.DECODE[data[i]]
 		if !ok {
-			return 0, fmt.Errorf("invalid character in suid string: %c", data[i])
+			return fmt.Errorf("invalid character in suid string: %c", data[i])
 		}
 		value = (value << 5) | uint64(idx)
 	}
-	return SUID(value), nil
+	*s = SUID(value)
+	return nil
 }
 
 type builder struct {
-	seq      int64
-	thisTime int64
-	zeroTime int64
-	seqCount int64
-	group    uint64
-	mx       sync.Mutex
-}
-
-// getBuilder returns the builder for the given group. If the builder does not exist, it will create a new one.
-func getBuilder(g uint8) *builder {
-	if g > MAX_GROUP {
-		panic(fmt.Sprintf("[SUID] Invalid input group: %d", g))
-	}
-	b, _ := _Builders.LoadOrStore(g, newBuilder(g))
-	return b.(*builder)
-}
-
-// newBuilder creates a new builder for the given group.
-func newBuilder(group uint8) *builder {
-	return &builder{seq: 0, thisTime: 0, zeroTime: time.Now().Unix(), seqCount: 0, group: uint64(group)}
+	seq        int64
+	lastSecond int64
+	seqCount   int64
+	group      uint64
+	mx         sync.Mutex
 }
 
 // create creates a new SUID for the given group.
 func (b *builder) create() SUID {
 	b.mx.Lock()
 	defer b.mx.Unlock()
-	b.thisTime = time.Now().Unix()
-	if b.thisTime < b.zeroTime { // clock moved backwards
+	thisSecond := time.Now().Unix()
+	if thisSecond < b.lastSecond { // clock moved backwards
 		panic("[SUID] Fatal Error!!! Host Clock moved backwards!")
 	}
 	b.seq++
 	if b.seq > MAX_SEQ { // overflow
 		b.seq = 0
 	}
-	if b.thisTime == b.zeroTime {
+	if thisSecond == b.lastSecond {
 		b.seqCount++
 		if b.seqCount > MAX_SEQ {
 			b.seqCount = 0
-			b.thisTime = b.zeroTime + 1
-			b.zeroTime = b.thisTime
-			dur := time.Until(time.Unix(b.thisTime, 0))
+			thisSecond = b.lastSecond + 1
+			b.lastSecond = thisSecond
+			dur := time.Until(time.Unix(thisSecond, 0))
 			if dur > 0 {
 				fmt.Printf("[SUID][WARN] Force wait(%s) to next second.\n", dur)
 				time.Sleep(dur)
@@ -225,66 +190,7 @@ func (b *builder) create() SUID {
 		}
 	} else {
 		b.seqCount = 0
-		b.zeroTime = b.thisTime
+		b.lastSecond = thisSecond
 	}
-	return SUID(b.group<<(_WID_TIME+_WID_SEQ+_WID_HOST) | uint64(b.thisTime)<<(_WID_SEQ+_WID_HOST) | uint64(b.seq)<<_WID_HOST | uint64(_HOST_ID&0x7f))
-}
-
-func getHostID() uint8 {
-	// read SUID_HOST_ID from environment firstly
-	str := os.Getenv("SUID_HOST_ID")
-	if str != "" {
-		id, err := strconv.ParseInt(str, 10, 64)
-		if err == nil {
-			return uint8(id)
-		}
-	}
-	// read statefulset id from k8s environment secondly
-	name := os.Getenv("POD_NAME")
-	if name == "" {
-		name, _ = os.Hostname()
-	}
-	parts := strings.Split(name, "-")
-	if len(parts) > 1 {
-		str := parts[len(parts)-1]
-		id, err := strconv.ParseInt(str, 10, 64)
-		if err == nil {
-			return uint8(id)
-		}
-	}
-	// read local ip address thirdly
-	if ip, err := getLocalIP(); err == nil {
-		parts := strings.Split(ip, ".")
-		if len(parts) == 4 {
-			last, err := strconv.ParseInt(parts[3], 10, 64)
-			if err == nil {
-				return uint8(last)
-			}
-		}
-	}
-	return uint8(rand.Int())
-}
-
-// getLocalIP retrieves the non-loopback local IPv4 address of the machine.
-func getLocalIP() (string, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return "", err
-	}
-	for _, iface := range interfaces {
-		// Check if the interface is up and not a loopback
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			if ipNet, ok := addr.(*net.IPNet); ok && ipNet.IP.To4() != nil {
-				return ipNet.IP.String(), nil
-			}
-		}
-	}
-	return "", fmt.Errorf("no network interface found")
+	return SUID(b.group<<(_WID_TIME+_WID_SEQ+_WID_HOST) | uint64(thisSecond)<<(_WID_SEQ+_WID_HOST) | uint64(b.seq)<<_WID_HOST | uint64(coder.HOSTID))
 }

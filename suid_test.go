@@ -16,10 +16,10 @@ type User struct {
 
 func TestEncode(t *testing.T) {
 	id := New(5)
-	fmt.Println(id.Host())
+	fmt.Println(id.HostID())
 	t.Log(id.Description())
 	str := id.String()
-	id2, err := FromString(str)
+	id2, err := Parse(str)
 	t.Log(id2.Description())
 	if err != nil {
 		t.Error(err)
@@ -60,19 +60,19 @@ func TestConcurencey(t *testing.T) {
 	wg.Go(func() {
 		for range max {
 			id := New()
-			suids.Store(id.Integer(), id)
+			suids.Store(id, id)
 		}
 	})
 	wg.Go(func() {
 		for range max {
 			id := New()
-			suids.Store(id.Integer(), id)
+			suids.Store(id, id)
 		}
 	})
 	wg.Go(func() {
 		for range max {
 			id := New()
-			suids.Store(id.Integer(), id)
+			suids.Store(id, id)
 		}
 	})
 	wg.Wait()
@@ -93,21 +93,15 @@ func TestConcurencey(t *testing.T) {
 func BenchmarkGenerate(b *testing.B) {
 	id := New()
 	str := id.String()
-	i := id.Integer()
 	b.ReportAllocs()
 	b.Run("New", func(b *testing.B) {
 		for b.Loop() {
-			New()
+			_ = New().String()
 		}
 	})
-	b.Run("NewFromInteger", func(b *testing.B) {
+	b.Run("Parse", func(b *testing.B) {
 		for b.Loop() {
-			FromInteger(i)
-		}
-	})
-	b.Run("NewFromString", func(b *testing.B) {
-		for b.Loop() {
-			FromString(str)
+			Parse(str)
 		}
 	})
 }
