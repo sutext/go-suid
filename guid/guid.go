@@ -20,6 +20,7 @@ type GUID [10]byte
 
 // Group is the group ID of the GUID.
 // User can define their own group ID.
+// The group ID must be between 0 and 15.
 type Group uint8
 
 const (
@@ -71,6 +72,8 @@ func Parse(str string) (u GUID, err error) {
 }
 
 // String returns the string representation of the GUID.
+// The string is 16 characters long.
+// It will encode the GUID into a base32-encoded string every time.
 func (g GUID) String() string {
 	bytes := make([]byte, 16)
 	g.encodeInto(bytes)
@@ -173,7 +176,6 @@ func (g GUID) encodeInto(bytes []byte) {
 	bytes[15] = coder.ENCODE[g[9]&0x1f]
 }
 
-// decode decodes a base32-encoded string to a uint64 value.
 func (g *GUID) decodeFrom(d []byte) error {
 	if len(d) != 16 {
 		return fmt.Errorf("invalid suid string length")
