@@ -1,4 +1,4 @@
-package suid
+package guid
 
 import (
 	"encoding/json"
